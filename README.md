@@ -151,6 +151,10 @@ python infer_quantized.py --input "这是一个简单的翻译模型。"
 python infer_quantized.py
 ```
 
+推理结果展示：
+
+<img src="./images/中译英结果展示.jpg" style="zoom:67%;" />
+
 ### 5. FP16 量化导出
 
 训练完成后，将 FP32 模型导出为 FP16 半精度，体积缩小 6 倍，推理速度更快。
