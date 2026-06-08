@@ -52,7 +52,16 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + self.pe[:, :x.size(1), :]
+        if x.size(1) > self.pe.size(1):
+            pe = torch.zeros(x.size(1), self.pe.size(-1), device=x.device)
+            position = torch.arange(0, x.size(1), dtype=torch.float, device=x.device).unsqueeze(1)
+            div_term = torch.exp(torch.arange(0, self.pe.size(-1), 2, device=x.device).float() * (-math.log(10000.0) / self.pe.size(-1)))
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            pe = pe.unsqueeze(0)
+            x = x + pe[:, :x.size(1), :]
+        else:
+            x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
 
 

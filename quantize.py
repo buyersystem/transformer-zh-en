@@ -20,21 +20,39 @@ import sentencepiece as spm
 from tokenizer import UnifiedBPETokenizer
 
 
-def build_model_from_checkpoint(checkpoint, device):
+def get_config_from_checkpoint(checkpoint):
+    """从 checkpoint 提取模型配置（兼容完整 checkpoint / FP16 导出 / 纯 state_dict）"""
+    if 'model_config' in checkpoint:
+        return checkpoint['model_config']
+    if 'args' in checkpoint:
+        args = checkpoint['args']
+        return {
+            'd_model': args.d_model,
+            'nhead': args.nhead,
+            'num_encoder_layers': args.num_encoder_layers,
+            'num_decoder_layers': args.num_decoder_layers,
+            'd_ff': args.d_ff,
+            'max_len': args.max_len,
+        }
+    raise KeyError("checkpoint 缺少 'model_config' 或 'args' 键，无法获取模型配置")
+
+
+def build_model_from_checkpoint(checkpoint, device, vocab_size=None):
     """从检查点重建模型"""
-    args = checkpoint['args']
-    vocab_size = checkpoint['tokenizer'].get_vocab_size()
+    config = get_config_from_checkpoint(checkpoint)
+    if vocab_size is None:
+        vocab_size = checkpoint['tokenizer'].get_vocab_size()
     
     model = Transformer(
         src_vocab_size=vocab_size,
         tgt_vocab_size=vocab_size,
-        d_model=args.d_model,
-        num_heads=args.nhead,
-        num_encoder_layers=args.num_encoder_layers,
-        num_decoder_layers=args.num_decoder_layers,
-        d_ffn=args.d_ff,
-        dropout=0.0,  # 推理时关闭 dropout
-        max_len=args.max_len,
+        d_model=config['d_model'],
+        num_heads=config['nhead'],
+        num_encoder_layers=config['num_encoder_layers'],
+        num_decoder_layers=config['num_decoder_layers'],
+        d_ffn=config['d_ff'],
+        dropout=0.0,
+        max_len=config['max_len'],
         pad_idx=0
     )
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -137,7 +155,10 @@ def main():
 
     model_fp16 = build_model_from_checkpoint(raw, 'cpu')
     model_fp16.half()
-    torch.save(model_fp16.state_dict(), fp16_path)
+    torch.save({
+        'model_state_dict': model_fp16.state_dict(),
+        'model_config': get_config_from_checkpoint(raw),
+    }, fp16_path)
     fp16_mem = get_model_size_mb(model_fp16)
     fp16_disk = get_model_size_mb(fp16_path)
     print(f"  FP16 内存占用: {fp16_mem:.1f} MB")
@@ -175,8 +196,11 @@ def main():
         print(f"{label:<30s} {size:>8.1f} MB {ratio:>8.0f}%")
 
     print(f"\n使用方法:")
-    print(f"  model.load_state_dict(torch.load('checkpoints/model_fp16.pt'))")
-    print(f"  model.half().to(device)")
+    print(f"  ckpt = torch.load('checkpoints/model_fp16.pt', map_location='cpu')")
+    print(f"  config = ckpt['model_config']")
+    print(f"  model = Transformer(vocab_size, **config).half()")
+    print(f"  model.load_state_dict(ckpt['model_state_dict'])")
+    print(f"  model.to(device)")
     print(f"\nFP16 是当前模型的最佳部署方案：102MB、GPU 推理、精度无损")
 
 

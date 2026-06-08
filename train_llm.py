@@ -100,7 +100,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         tgt_output = tgt[:, 1:]
         
         # 前向传播
-        with torch.amp.autocast('cuda'):
+        with (torch.cuda.amp.autocast() if hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'autocast') else torch.amp.autocast('cuda')):
             logits = model(src, tgt_input)
             loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
         
@@ -286,8 +286,9 @@ def main():
         lambda step: get_lr_cosine(step, args.d_model, args.warmup_steps, args.lr_multiplier, max_steps=total_steps)
     )
     
-    # AMP: 梯度缩放器
-    scaler = torch.amp.GradScaler('cuda')
+    # AMP: 梯度缩放器（兼容旧版 torch.cuda.amp）
+    scaler = (torch.cuda.amp.GradScaler() if hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'GradScaler')
+              else torch.amp.GradScaler('cuda'))
     
     # 断点续训
     start_epoch = 0

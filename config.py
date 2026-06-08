@@ -29,7 +29,7 @@ def get_args():
     parser.add_argument("--seed", type=int, default=42, help='随机种子')
     
     # 训练参数
-    parser.add_argument("--epochs", type=int, default=30, help='训练轮数')
+    parser.add_argument("--epochs", type=int, default=11, help='训练轮数')
     parser.add_argument("--batch_size", type=int, default=32, help='批次大小')
     parser.add_argument("--accumulate_grad", type=int, default=4, 
                         help='梯度累积步数（有效batch=batch_size*accumulate_grad，续训建议8+）')
@@ -101,7 +101,7 @@ class Config:
     推理时会自动从检查点中加载这些参数
     """
     seed = 42
-    epochs = 30
+    epochs = 11
     batch_size = 32
     accumulate_grad = 4
     lr = 1.0  # LambdaLR 的 base_lr，1.0 表示由 scheduler 全权控制

@@ -26,13 +26,13 @@ def build_model(vocab_size, config):
     return Transformer(
         src_vocab_size=vocab_size,
         tgt_vocab_size=vocab_size,
-        d_model=config.d_model,
-        num_heads=config.nhead,
-        num_encoder_layers=config.num_encoder_layers,
-        num_decoder_layers=config.num_decoder_layers,
-        d_ffn=config.d_ff,
+        d_model=config['d_model'],
+        num_heads=config['nhead'],
+        num_encoder_layers=config['num_encoder_layers'],
+        num_decoder_layers=config['num_decoder_layers'],
+        d_ffn=config['d_ff'],
         dropout=0.0,
-        max_len=config.max_len,
+        max_len=config['max_len'],
         pad_idx=0
     )
 
@@ -41,13 +41,10 @@ def load_fp16_model(checkpoint_dir, tokenizer, device):
     """
     加载 FP16 半精度模型
 
-    【原理】将 32-bit 权重压缩为 16-bit，精度几乎无损。
-    推理时自动反量化，在 GPU 上运行。
+    从 model_fp16.pt 中读取模型配置和权重，无需硬编码配置。
     """
-    config = get_model_config()
     vocab_size = tokenizer.get_vocab_size()
 
-    # 加载 FP16 权重
     fp16_path = os.path.join(checkpoint_dir, "model_fp16.pt")
     if not os.path.exists(fp16_path):
         raise FileNotFoundError(
@@ -55,33 +52,17 @@ def load_fp16_model(checkpoint_dir, tokenizer, device):
             f"请将 model_fp16.pt 放入 checkpoints/ 目录"
         )
 
+    checkpoint = torch.load(fp16_path, map_location='cpu', weights_only=True)
+    config = checkpoint['model_config']
+
     model = build_model(vocab_size, config)
-    state = torch.load(fp16_path, map_location='cpu', weights_only=True)
-    model.load_state_dict(state)
+    model.load_state_dict(checkpoint['model_state_dict'])
     model.half()
     model.eval()
 
     print(f"  FP16 模型已加载: {fp16_path}")
     print(f"  参数量: {sum(p.numel() for p in model.parameters()):,}")
     return model.to(device), config
-
-
-def get_model_config():
-    """
-    返回模型结构参数（硬编码，无需 best_model.pt）
-
-    当前 exp_4layer 配置：d_model=384, 4 层, 8 头, d_ff=1536
-    如果换了模型，修改这里的参数即可
-    """
-    class Config:
-        d_model = 384
-        nhead = 8
-        num_encoder_layers = 4
-        num_decoder_layers = 4
-        d_ff = 1536
-        max_len = 128
-        dropout = 0.1
-    return Config()
 
 
 def load_tokenizer(checkpoint_dir):
@@ -124,7 +105,7 @@ def translate(model, tokenizer, text, config):
         encoder_output, src_mask = model.encode(src_tensor)
 
         tgt_ids = [tokenizer.bos_id]
-        for _ in range(config.max_len):
+        for _ in range(config['max_len']):
             tgt_tensor = torch.tensor([tgt_ids], dtype=torch.long).to(model_device)
             decoder_output = model.decode(tgt_tensor, encoder_output, src_mask)
             output = model.linear(decoder_output)

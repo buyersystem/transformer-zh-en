@@ -6,7 +6,7 @@
 
 - Python 3.8+
 - PyTorch 2.0+
-- 显存 4GB+（FP16）/ 无需 GPU（INT8）
+- 显存 4GB+（FP16）
 
 ## 安装
 
@@ -17,11 +17,8 @@ pip install torch sentencepiece
 ## 使用方法
 
 ```bash
-# 默认 FP16 模式（推荐，GPU 推理）
+# FP16 模式（推荐，GPU 推理）
 python infer_quantized.py
-
-# INT8 量化模式（CPU 推理）
-python infer_quantized.py --model int8
 
 # 单句翻译
 python infer_quantized.py --input "你好世界"
@@ -45,10 +42,10 @@ python infer_quantized.py --input "Hello world"
 | 指标 | 值 |
 |------|-----|
 | 模型结构 | 4 层 Transformer（手写实现） |
-| 参数量 | 25M |
+| 参数量 | 53.5M |
 | d_model | 384 |
 | 训练数据 | WMT 中英 100 万句对 |
-| BLEU (zh→en) | 36.21 |
+| BLEU (zh→en) | 36.87 |
 
 ## 文件说明
 

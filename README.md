@@ -1,26 +1,30 @@
 # Transformer 中英机器翻译
 
 纯手写实现 Transformer 论文《Attention Is All You Need》，用于中英机器翻译。
+在 4070 Ti 上训练 11 epoch，100 万句对，BLEU 达 36.87。
 
 ## 项目特性
 
-- **论文原版实现** — 纯手写多头注意力，不使用 `nn.Transformer`
-- **统一 BPE 分词** — 中英文共享词表，粒度一致
-- **AMP 混合精度** — 自动混合精度训练，节省显存
-- **梯度裁剪** — 防止梯度爆炸
+- **纯手写 Transformer** — 多头注意力、位置编码、掩码机制全部手写，不依赖 `nn.Transformer`
+- **统一 BPE 分词** — 中英文共享 32K 词表，SentencePiece 训练（100 万句对）
+- **AMP 混合精度** — 自动混合精度训练，4070 Ti 上约 28 it/s
+- **余弦退火 + Warmup** — 稳定收敛，11 epoch 达到 BLEU 36.87
 - **DDP 多卡支持** — 多卡并行训练
-- **TensorBoard 支持** — 实时可视化学习曲线
+- **完整流水线** — CSV 清洗 → 数据采样 → 分词器训练 → 模型训练 → BLEU 评估
 
 ## 环境要求
 
-| 依赖 | 版本 | 说明 |
-|------|------|------|
-| Python | 3.8+ | |
-| PyTorch | 2.0+ | AMP 混合精度训练 |
-| CUDA | 11.0+ | GPU 训练 |
-| 显存 | 12GB+ | 4070Ti 单卡 |
+| 依赖 | 版本（已验证） | 说明 |
+|------|---------------|------|
+| Python | 3.12 | |
+| PyTorch | 2.5.1+cu124 | AMP 混合精度训练 |
+| CUDA | 12.4 | GPU 训练 |
+| GPU | RTX 4070 Ti (12GB) | 实测约 28 it/s |
 
 ```bash
+# 推荐使用 conda 环境
+conda create -n dl2llm python=3.12
+conda activate dl2llm
 pip install -r requirements.txt
 ```
 
@@ -28,26 +32,68 @@ pip install -r requirements.txt
 
 ### 1. 数据准备
 
-数据未包含在仓库中（体积过大），请从魔搭下载：
+数据从魔搭下载（6.3GB CSV）：
 
 👉 [WMT-Chinese-to-English-Machine-Translation-Training-Corpus](https://www.modelscope.cn/datasets/iic/WMT-Chinese-to-English-Machine-Translation-Training-Corpus/files/)
 
-下载后将 CSV 文件放入 `./data/WMT-CN-to-EN/`，然后一键预处理：
+下载后将 CSV 文件放入 `./data/WMT-CN-to-EN/`，然后分三步处理：
+
+#### 1.1 清洗原始 CSV
+
+```bash
+python tools/process_wmt.py \
+  --input data/WMT-CN-to-EN/wmt_zh_en_training_corpus.csv \
+  --output_dir data/wmt_processed
+```
+
+输出：`data/wmt_processed/wmt_zh_en_training_corpus.zh` + `.en`（约 2473 万句对）
+
+#### 1.2 采样训练集和测试集
+
+从全量数据中随机采样 100 万训练句对 + 10 万测试句对：
+
+```bash
+python -c "
+from preprocess_pipeline import step2_sample_data
+step2_sample_data('data/wmt_processed/wmt_zh_en_training_corpus.zh',
+                  'data/wmt_processed/wmt_zh_en_training_corpus.en',
+                  train_num=1000000, valid_num=100000)
+"
+```
+
+输出：`data/wmt_processed/train.zh`/`.en`（100 万）+ `data/wmt_processed/valid.zh`/`.en`（10 万）
+
+#### 1.3 训练 BPE 分词器
+
+在 100 万训练集上训练中英文统一 BPE 分词器（32K 词表）：
+
+```bash
+python -c "
+from preprocess_pipeline import step3_train_tokenizer
+step3_train_tokenizer('data/wmt_processed/train.zh',
+                      'data/wmt_processed/train.en',
+                      vocab_size=32000, output_dir='./checkpoints')
+"
+```
+
+输出：`checkpoints/bpe_unified.model` + `.vocab`
+
+也可一键执行上述三步：
 
 ```bash
 python preprocess_pipeline.py
 ```
 
-输出：`data/wmt_processed/train.en`、`data/wmt_processed/train.zh`（~100 万句对）
-
 ### 2. 训练
 
+模型自动加载 `checkpoints/bpe_unified.model`（如不存在则自动训练）。
+
 ```bash
-# 推荐配置：4 层轻量模型，~4 小时获得可用翻译
+# 推荐配置：4 层轻量模型，~3 小时获得可用翻译
 python train_llm.py \
   --data_dir data/wmt_processed \
-  --epochs 30 \
-  --batch_size 64 \
+  --epochs 11 \
+  --batch_size 32 \
   --lr_multiplier 0.5 \
   --checkpoint_dir checkpoints \
   --num_encoder_layers 4 \
@@ -55,6 +101,12 @@ python train_llm.py \
   --d_model 384 \
   --d_ff 1536
 ```
+
+训练过程（4070 Ti 实测）：
+- 训练速度：约 28 it/s，单 epoch 约 18 分钟
+- 总耗时：11 epoch 约 3 小时
+- Loss 收敛：train_loss=2.64，val_loss=2.70
+- 最佳模型自动保存至 `checkpoints/best_model.pt`
 
 多卡训练：
 ```bash
@@ -81,49 +133,65 @@ python evaluate_bleu.py --checkpoint ./checkpoints/best_model.pt --max_samples 1
 
 ### 4. 推理
 
-```bash
-# 命令行翻译
-python infer.py --input "你好世界"
+提供两套推理方案：
 
-# 交互式翻译
+- **`infer.py`（FP32）** — 完整精度，支持 Beam Search
+- **`infer_quantized.py`（FP16）** — 半精度 GPU 推理，速度更快，体积仅 102MB
+
+```bash
+# FP32 推理（支持 Beam Search）
+python infer.py --input "你好世界"
+python infer.py --beam_size 5
+
+# 交互式推理
 python infer.py
 
-# Beam Search（提高翻译质量）
-python infer.py --beam_size 5
+# FP16 推理（需先导出，见下一节）
+python infer_quantized.py --input "你好世界"
+python infer_quantized.py
 ```
 
-### 观察训练曲线
+### 5. FP16 量化导出
+
+训练完成后，将 FP32 模型导出为 FP16 半精度，体积缩小 6 倍，推理速度更快。
 
 ```bash
-tensorboard --logdir checkpoints/runs
-# 浏览器打开 http://localhost:6006
+python quantize.py
 ```
+
+导出结果：
+- 输入：`checkpoints/best_model.pt`（FP32, 613 MB）
+- 输出：`checkpoints/model_fp16.pt`（FP16, 102 MB）
+- 自动验证 FP16 与 FP32 输出一致性
+
+FP16 模型推理：
+```bash
+python infer_quantized.py                     # 交互式
+python infer_quantized.py --input "你好世界"   # 单句
+```
+
+FP16 模型可复制到 `translation_infer/checkpoints/` 目录单独分发部署。
 
 ## 当前最佳结果
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| val_loss | 2.71 | epoch 11（早停，train-val gap 归零收敛） |
-| zh→en BLEU | 36.21 | 1000 样本，greedy decode |
-| 总训练时间 | ~4 小时 | 11 epoch，4070Ti 单卡 |
-| en→zh | 训练中 | 双向模型，英文→中文仍需更多训练 |
+| val_loss | 2.70 | epoch 11 |
+| zh→en BLEU | 36.87 | 1000 样本，greedy decode |
+| 总训练时间 | ~3 小时 | 11 epoch，4070Ti 单卡 |
+| 训练数据 | 100 万句对 | 从 2473 万句对中采样 |
+| 参数量 | 53.5M | 4 层 Transformer |
 
 > **早停策略**：train-val gap 在 epoch 11 反转（train < val），此时停止训练可避免过拟合。
 
-### 训练曲线（逐轮记录）
+### 训练曲线
 
-| Epoch | Train Loss | Val Loss | Gap | 备注 |
-|-------|-----------|----------|-----|------|
-| 0 | 3.42 | 4.14 | -0.72 | 初始快速下降 |
-| 1 | 3.19 | 3.26 | -0.07 | |
-| 3 | 3.02 | 2.94 | +0.08 | |
-| 5 | 2.91 | 2.83 | +0.08 | BLEU=33.55 |
-| 8 | 2.78 | 2.76 | +0.02 | 收敛减速 |
-| 9 | 2.75 | 2.74 | +0.01 | |
-| 10 | 2.72 | 2.72 | **0.00** | 最佳收敛点 |
-| 11 | 2.69 | 2.71 | **-0.02** | 过拟合前兆 |
+使用 TensorBoard 查看逐 epoch 的 loss 和 learning rate 曲线：
 
-> gap 从正值→零→负值的过程完美展示了过拟合的发生机制。
+```bash
+tensorboard --logdir checkpoints/runs
+# 浏览器打开 http://localhost:6006
+```
 
 ## 超参数
 
@@ -137,15 +205,15 @@ tensorboard --logdir checkpoints/runs
 | num_decoder_layers | 4 | 解码器层数 |
 | d_ff | 1536 | 前馈网络维度（4 × d_model） |
 | dropout | 0.1 | Dropout 比率 |
-| 参数量 | ~25M | 论文原版 65M，缩减至 1/3 |
+| 参数量 | 53.5M | 论文原版 65M |
 
 ### 训练配置
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| batch_size | 64 | 单卡批次大小 |
+| batch_size | 32 | 单卡批次大小 |
 | accumulate_grad | 1 | 梯度累积步数 |
-| epochs | 30 | 目标训练轮数 |
+| epochs | 11 | 目标训练轮数 |
 | warmup_steps | 4000 | 学习率预热步数 |
 | lr_multiplier | 0.5 | 学习率乘数（余弦退火） |
 | label_smoothing | 0.1 | 标签平滑 |
@@ -157,8 +225,8 @@ tensorboard --logdir checkpoints/runs
 |------|-----|------|
 | vocab_size | 32,000 | 中英文统一 BPE 词表 |
 | max_len | 128 | 最大序列长度 |
-| 训练数据量 | ~100 万句对 | WMT 中英平行语料 |
-| 训练耗时 | ~4 小时 | 11 epoch（早停），4070Ti 单卡 |
+| 训练数据量 | 100 万句对 | 从 2473 万句对中采样 |
+| 训练耗时 | ~3 小时 | 11 epoch，4070Ti 单卡 |
 
 ## 项目结构
 
@@ -211,13 +279,14 @@ Transformer_zh_en2026/
 │   │   ├── __init__.py
 │   │   └── transformer.py
 │   └── checkpoints/
+│       ├── model_fp16.pt         # FP16 半精度模型（需从根目录复制）
 │       ├── bpe_unified.model
 │       ├── bpe_unified.vocab
 │       └── tokenizer.py
 │
 ├── data/
 │   ├── wmt_processed/        # 处理后的训练数据（需下载，不入仓库）
-│   └── debug_small/          # 小规模调试数据（200 条训练 + 50 条验证）
+│   └── debug_small/          # 小规模调试数据（2000 条训练 + 200 条验证）
 │
 ├── README.md
 ```
@@ -232,26 +301,53 @@ Transformer_zh_en2026/
 
 ## 核心实现
 
-### 位置编码（论文原版）
+### 1. 模型结构（transformer.py）
+
+| 组件 | 实现要点 |
+|------|---------|
+| PositionalEncoding | 固定正弦/余弦位置编码，`PE(pos,2i)=sin(pos/10000^(2i/d))`，序列超长时动态扩展 |
+| Scaled Dot-Product Attention | `softmax(QK^T / √d_k)V`，`-inf` 掩码，NaN 兜底 |
+| MultiHeadAttention | 8 头并行，独立 Q/K/V/O 线性投影，`d_k = d_model / nhead` |
+| PositionWiseFFN | `Linear → ReLU → Dropout → Linear` |
+| AddNorm | Post-LN（残差连接后 LayerNorm，与原论文一致） |
+| EncoderLayer | Self-Attn → AddNorm → FFN → AddNorm |
+| DecoderLayer | Masked Self-Attn → Cross-Attn → FFN，三层 AddNorm |
+| Transformer | 独立 src/tgt embed，Xavier 初始化，`encode/decode/forward` 三入口 |
+
+### 2. 分词器（tokenizer.py）
+
+- 中英文共享 32K BPE 词表（SentencePiece）
+- 语言标记 `▁zh`/`▁en` 让 BPE 学习语言特定的子词分布
+- 中文去空格直编，英文小写 + 标点分离后编码
+- 解码自动判断中文去掉额外空格
+
+### 3. 训练方案
+
+| 方案 | 精度 | 优化器 | LR 调度 | 适用场景 |
+|------|------|--------|---------|---------|
+| `train_llm.py`（推荐） | AMP 混合精度 | AdamW（wd=0.01） | CosineAnnealing + Warmup | 消费级 GPU 优化 |
+| `train_2017.py`（参考） | FP32 | Adam | `d^-0.5 · min(step^-0.5, step · warmup^-1.5)` | 论文复现 |
+
+### 4. 推理与解码
+
+| 策略 | 文件 | 算法要点 |
+|------|------|---------|
+| Greedy | `infer.py` / `infer_quantized.py` | 每步 `argmax`，到 `eos` 停止 |
+| Beam Search | `infer.py` / `scripts/generate_beam.py` | 宽度 5 + length penalty α=0.6 + n-gram 去重 |
+| Sampling | `scripts/generate_sampling.py` | Temperature / top-k / n-gram 回退到 argmax |
+
+### 5. 量化导出（quantize.py）
+
+- FP32（613 MB）→ FP16（102 MB），精度无损验证
+- 自描述导出格式：`{'model_state_dict': ..., 'model_config': {...}}`
+- 导出后可用 `infer_quantized.py` 独立推理，无需 `best_model.pt`
+
+### 6. 数据流水线
 
 ```
-PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
-PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
-```
-
-### 多头注意力
-
-- 8 个头，每个头 64 维
-- Q、K、V 线性变换
-- Scaled dot-product attention
-
-### 学习率调度
-
-**train_llm.py（推荐）**：使用 CosineAnnealingLR + LinearWarmup，训练更稳定。
-
-**train_2017.py（参考）**：论文原版公式
-```
-lr = d_model^(-0.5) * min(step^(-0.5), step * warmup_steps^(-1.5))
+CSV(6.3GB) → process_wmt.py → 2473万句对
+  → sample → 100万 train + 10万 valid
+    → train_tokenizer → 32K BPE 词表
 ```
 
 ## 参考
