@@ -140,14 +140,14 @@ python evaluate_bleu.py --checkpoint ./checkpoints/best_model.pt --max_samples 1
 
 ```bash
 # FP32 推理（支持 Beam Search）
-python infer.py --input "你好世界"
+python infer.py --input "这是一个简单的翻译模型。"
 python infer.py --beam_size 5
 
 # 交互式推理
 python infer.py
 
 # FP16 推理（需先导出，见下一节）
-python infer_quantized.py --input "你好世界"
+python infer_quantized.py --input "这是一个简单的翻译模型。"
 python infer_quantized.py
 ```
 
@@ -167,7 +167,7 @@ python quantize.py
 FP16 模型推理：
 ```bash
 python infer_quantized.py                     # 交互式
-python infer_quantized.py --input "你好世界"   # 单句
+python infer_quantized.py --input "这是一个简单的翻译模型。"   # 单句
 ```
 
 FP16 模型可复制到 `translation_infer/checkpoints/` 目录单独分发部署。
