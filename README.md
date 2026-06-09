@@ -104,11 +104,30 @@ python train_llm.py \
 
 训练过程（4070 Ti 实测）：
 - 训练速度：约 28 it/s，单 epoch 约 18 分钟
+
 - 总耗时：11 epoch 约 3 小时
+
 - Loss 收敛：train_loss=2.64，val_loss=2.70
+
 - 最佳模型自动保存至 `checkpoints/best_model.pt`
 
+
+#### 图1 Train Loss
+
+![](./images/Train_Loss.svg)
+
+#### 图2 Train Learning Rate
+
+![](./images/Train_Learning_Rate.svg)
+
+#### 图3 Val Train Loss(epochs)
+
+![](H:\MyGitHub\transformer-zh-en\images\Eval_train_loss.svg)
+
+
+
 多卡训练：
+
 ```bash
 torchrun --nproc_per_node=3 train_llm.py
 ```
@@ -151,9 +170,11 @@ python infer_quantized.py --input "这是一个简单的翻译模型。"
 python infer_quantized.py
 ```
 
-推理结果展示：
+#### 图4 推理结果展示
 
-<img src="./images/中译英结果展示.jpg" style="zoom:67%;" />
+<img src="./images/中译英结果展示.jpg" style="zoom:100%;" />
+
+ 
 
 ### 5. FP16 量化导出
 
