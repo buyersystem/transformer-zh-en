@@ -3,6 +3,8 @@
 纯手写实现 Transformer 论文《Attention Is All You Need》，用于中英机器翻译。
 在 4070 Ti 上训练 11 epoch，100 万句对，BLEU 达 36.87。
 
+⭐ 如果这个项目对你有用，点个 Star ⭐支持一下，是我持续更新的动力。
+
 ## 项目特性
 
 - **纯手写 Transformer** — 多头注意力、位置编码、掩码机制全部手写，不依赖 `nn.Transformer`
