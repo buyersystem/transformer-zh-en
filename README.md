@@ -172,7 +172,7 @@ python infer_quantized.py
 
 #### 图4 推理结果展示
 
-<img src="./images/中译英结果展示.jpg" style="zoom:100%;" />
+![](./images/zh_en.jpg)
 
  
 
