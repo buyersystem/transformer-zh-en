@@ -122,7 +122,7 @@ python train_llm.py \
 
 #### 图3 Val Train Loss(epochs)
 
-![](H:\MyGitHub\transformer-zh-en\images\Eval_train_loss.svg)
+![](./images/Eval_train_loss.svg)
 
 
 
