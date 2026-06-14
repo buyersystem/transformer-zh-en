@@ -5,6 +5,11 @@
 
  **持续更新中， 点个 Star ⭐ 收藏，更新不错过。**
 
+| 仓库 | 地址 |
+|------|------|
+| GitHub | https://github.com/philexohf/transformer-zh-en |
+| Gitee  | https://gitee.com/philexohf/transformer-zh-en |
+
 ## 项目特性
 
 - **纯手写 Transformer** — 多头注意力、位置编码、掩码机制全部手写，不依赖 `nn.Transformer`
