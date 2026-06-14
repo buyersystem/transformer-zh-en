@@ -121,15 +121,15 @@ python train_llm.py \
 
 #### 图1 Train Loss
 
-![](./images/Train_Loss.svg)
+![](./images/Train_Loss.jpg)
 
 #### 图2 Train Learning Rate
 
-![](./images/Train_Learning_Rate.svg)
+![](./images/Train_Learning_Rate.jpg)
 
 #### 图3 Val Train Loss(epochs)
 
-![](./images/Eval_train_loss.svg)
+![](./images/Eval_train_loss.jpg)
 
 
 
