@@ -5,10 +5,10 @@
 
  **持续更新中， 点个 Star ⭐ 收藏，更新不错过。**
 
-| 仓库 | 地址 |
-|------|------|
-| GitHub | https://github.com/philexohf/transformer-zh-en |
-| Gitee  | https://gitee.com/philexohf/transformer-zh-en |
+| 仓库 | 地址 | 说明 |
+|------|------|------|
+| GitHub | https://github.com/philexohf/transformer-zh-en | 主仓库 |
+| Gitee  | https://gitee.com/philexohf/transformer-zh-en | 镜像同步 |
 
 ## 项目特性
 
