@@ -1,15 +1,7 @@
 """
-==============================================================
 数据预处理流程脚本
-==============================================================
 
-完整流程：
-1. tools/process_wmt.py: 原始CSV → 清洗文本 (.zh/.en)
-2. sample_data.py: 从全量数据中采样训练集和验证集
-3. train_tokenizer.py: 训练BPE分词器
-
-使用方法：
-    python preprocess_pipeline.py
+用法: python preprocess_pipeline.py
 """
 
 import os

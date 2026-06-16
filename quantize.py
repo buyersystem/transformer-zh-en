@@ -110,9 +110,7 @@ def get_model_size_mb(model_or_path):
         return total / (1024 * 1024)
 
 
-# ============================================================
 # 测试句子
-# ============================================================
 TEST_SENTENCES = [
     "你好世界",
     "今天天气很好，我们去公园散步吧。",
@@ -121,9 +119,7 @@ TEST_SENTENCES = [
 ]
 
 
-# ============================================================
 # 主流程
-# ============================================================
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     checkpoint_path = os.path.join(script_dir, "checkpoints", "best_model.pt")
@@ -139,13 +135,13 @@ def main():
     print(f"原始大小: {get_model_size_mb(checkpoint_path):.1f} MB")
     print("=" * 60)
     
-    # ========== 1. 加载原始模型 ==========
+    # 1. 加载原始模型
     print("\n[1/3] 加载原始 FP32 模型...")
     raw = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     tokenizer = load_tokenizer(checkpoint_path)
     model_fp32 = build_model_from_checkpoint(raw, device)
 
-    # ========== 2. FP16 导出 ==========
+    # 2. FP16 导出
     print("\n[2/3] 导出 FP16 半精度模型...")
     fp16_path = os.path.join(script_dir, "checkpoints", "model_fp16.pt")
 
@@ -161,7 +157,7 @@ def main():
     print(f"  FP16 磁盘体积: {fp16_disk:.1f} MB")
     print(f"  已保存: {fp16_path}")
 
-    # ========== 3. 推理对比 ==========
+    # 3. 推理对比
     print("\n[3/3] 推理对比验证...")
 
     models = {
@@ -178,7 +174,7 @@ def main():
             result = greedy_translate(model, tokenizer, text, dev)
             print(f"    {name:16s} → {result}")
 
-    # ========== 汇总 ==========
+    # 汇总
     print("\n" + "=" * 60)
     print("导出汇总")
     print("=" * 60)

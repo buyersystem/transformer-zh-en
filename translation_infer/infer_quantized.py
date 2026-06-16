@@ -89,7 +89,7 @@ def translate(model, tokenizer, text, config):
     """
     翻译函数（贪婪解码）
 
-    自动检测输入语言：中文→英文，英文→中文
+    自动检测输入语言：中文->英文，英文->中文
     """
     is_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
     src_lang = "zh" if is_chinese else "en"

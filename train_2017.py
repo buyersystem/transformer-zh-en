@@ -70,7 +70,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
     total_loss = 0
     num_batches = 0
     
-    # 梯度累积：多个小 batch 梯度累加后一次性更新，等效扩大 batch size
+    # 梯度累积：模拟更大 batch size
     accumulate_grad = getattr(args, 'accumulate_grad', 1)
     
     pbar = tqdm(train_loader, desc=f"Epoch {epoch}") if args.local_rank == 0 else train_loader
@@ -79,33 +79,24 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         src = src.to(device)
         tgt = tgt.to(device)
         
-        # 目标序列移位：tgt_input 去掉末尾，tgt_output 去掉开头
-        # 例: tgt=[<s>, hello, world, </s>] → input=[<s>,hello,world] / output=[hello,world,</s>]
         tgt_input = tgt[:, :-1]
         tgt_output = tgt[:, 1:]
         
-        # 前向传播
         logits = model(src, tgt_input)
         
         # 用 reshape 而非 view：Transformer 内 tensor 可能不连续，view 会报错
-        # ignore_index=0 忽略 padding 位置的损失
         loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
         
-        # 梯度累积：缩放损失
         loss = loss / accumulate_grad
         
-        # 反向传播
         loss.backward()
         
-        # 梯度累积：达到累积步数后更新参数
         if (batch_idx + 1) % accumulate_grad == 0 or (batch_idx + 1) == len(train_loader):
-            # 梯度裁剪，防止梯度爆炸
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
             
-            # TensorBoard: 记录训练步数和损失
             if args.local_rank == 0 and writer is not None:
                 current_loss = loss.item() * accumulate_grad
                 current_lr = scheduler.get_last_lr()[0]
@@ -116,7 +107,6 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         total_loss += loss.item() * accumulate_grad
         num_batches += 1
         
-        # 日志输出
         if args.local_rank == 0 and batch_idx % args.log_interval == 0:
             lr = scheduler.get_last_lr()[0]
             pbar.set_postfix({
@@ -151,10 +141,10 @@ def evaluate(model, val_loader, criterion, device):
 
 
 def main():
-    """训练入口：解析参数 → 初始化 DDP → 构建数据/模型 → 训练循环 → 保存。"""
+    """训练入口：解析参数 -> 初始化 DDP -> 构建数据/模型 -> 训练循环 -> 保存。"""
     args = get_args()
     
-    # ========== DDP 初始化 ==========
+    # DDP 初始化
     # 单卡: RANK=-1, WORLD_SIZE=1; 多卡: RANK=0/1/2, WORLD_SIZE=3
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         args.world_size = int(os.environ['WORLD_SIZE'])
@@ -176,15 +166,15 @@ def main():
         print(f"Training with {args.world_size} GPUs")
         print(f"Config: d_model={args.d_model}, nhead={args.nhead}, layers={args.num_encoder_layers}")
     
-    # ========== 分词器 ==========
+    # 分词器
     tokenizer = build_tokenizer(
         os.path.join(args.data_dir, "train.zh"),
         os.path.join(args.data_dir, "train.en"),
         args.vocab_size,
         os.path.join(args.checkpoint_dir, "bpe_unified")
     )
-    
-    # ========== 数据集 ==========
+
+    # 数据集
     train_dataset = TranslationDataset(args.data_dir, tokenizer, args.max_len, "train")
     val_dataset = TranslationDataset(args.data_dir, tokenizer, args.max_len, "valid")
     
@@ -222,32 +212,32 @@ def main():
             pin_memory=True
         )
     
-    # ========== 模型 ==========
+    # 模型
     model = build_model(len(tokenizer), args).to(device)
     if args.world_size > 1:
         model = nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
-    
-    # ========== 损失函数 ==========
+
+    # 损失函数
     criterion = nn.CrossEntropyLoss(
         ignore_index=tokenizer.pad_id,
         label_smoothing=args.label_smoothing
     )
-    
-    # ========== 优化器 ==========
+
+    # 优化器
     optimizer = torch.optim.Adam(
         model.parameters(), 
         lr=args.lr, 
         betas=(0.9, 0.98), 
         eps=1e-9
     )
-    
-    # ========== 学习率调度（论文原版 Warmup） ==========
+
+    # 学习率调度（论文原版 Warmup）
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
         lambda step: get_lr(step, args.d_model, args.warmup_steps)
     )
-    
-    # ========== 断点续训 ==========
+
+    # 断点续训
     start_epoch = 0
     if args.load_checkpoint and os.path.exists(args.load_checkpoint):
         if args.local_rank == 0:
@@ -264,7 +254,7 @@ def main():
     # 创建检查点目录
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     
-    # ========== TensorBoard ==========
+    # TensorBoard
     writer = None
     if args.local_rank == 0:
         if TB_AVAILABLE:
@@ -278,7 +268,7 @@ def main():
     best_loss = float('inf')
     global_step = 0
     
-    # ========== 训练 ==========
+    # 训练
     for epoch in range(start_epoch, args.epochs):
         # DDP: 每个epoch需要设置随机种子
         if args.world_size > 1:

@@ -1,11 +1,6 @@
 """
 Transformer 模型实现（Vaswani et al., 2017）
 
-架构: src→Embed→+PE→Encoder(N×)→enc_output─┐
-      tgt→Embed→+PE→Decoder(N×)→Linear→logits
-                                    ↑         |
-                             enc_output───────┘
-
 Base: d_model=512, heads=8, layers=6, FFN=2048, ~93M params
 """
 
@@ -15,9 +10,7 @@ from torch import nn
 import torch.nn.functional as F
 
 
-# ============================================================
-# 基础组件
-# ============================================================
+# --- 基础组件
 
 class PositionalEncoding(nn.Module):
     """
@@ -99,29 +92,23 @@ class MultiHeadAttention(nn.Module):
     def forward(self, query, key, value, mask=None):
         batch_size = query.size(0)
 
-        # 线性投影 + 拆头: [batch, seq, d_model] → [batch, h, seq, d_k]
         Q = self.W_q(query).view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
         K = self.W_k(key).view(batch_size, -1, self.num_heads, self.d_k).transpose(1, 2)
         V = self.W_v(value).view(batch_size, -1, self.num_heads, self.d_v).transpose(1, 2)
 
-        # mask 自动广播
         x, attn_weights = scaled_dot_product_attention(Q, K, V, mask)
-
-        # 拼接 + 输出投影: [batch, h, seq, d_k] → [batch, seq, d_model]
         x = x.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
         x = self.dropout(x)
         return self.W_o(x), attn_weights
 
 
-# ============================================================
-# 前馈网络与残差连接
-# ============================================================
+# --- 前馈网络 & 残差连接
 
 class PositionWiseFFN(nn.Module):
     """
     逐位置前馈网络 — Vaswani et al., Eq. 2
     FFN(x) = ReLU(xW1 + b1)W2 + b2
-    d_model → d_ffn → d_model（在各位置独立应用）
+    d_model -> d_ffn -> d_model（在各位置独立应用）
     """
     def __init__(self, d_model, d_ffn, dropout=0.1):
         super().__init__()
@@ -151,13 +138,11 @@ class AddNorm(nn.Module):
         return self.ln(residual + self.dropout(sublayer_output))
 
 
-# ============================================================
-# 编码器与解码器层
-# ============================================================
+# --- 编码器 & 解码器层
 
 class EncoderLayer(nn.Module):
     """
-    编码器层：Self-Attention → FFN，各带残差连接。
+    编码器层：Self-Attention + FFN，各带残差连接。
     """
     def __init__(self, d_model, num_heads, d_ffn, dropout):
         super().__init__()
@@ -176,7 +161,7 @@ class EncoderLayer(nn.Module):
 
 class DecoderLayer(nn.Module):
     """
-    解码器层：Masked Self-Attn → Cross-Attn → FFN，各带残差连接。
+    解码器层：Masked Self-Attn + Cross-Attn + FFN，各带残差连接。
     """
     def __init__(self, d_model, num_heads, d_ffn, dropout):
         super().__init__()
@@ -197,9 +182,7 @@ class DecoderLayer(nn.Module):
         return X
 
 
-# ============================================================
-# 完整Transformer模型
-# ============================================================
+# --- Transformer 模型
 
 class Transformer(nn.Module):
     """
@@ -230,9 +213,7 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    # ============================================================
-    # 掩码生成
-    # ============================================================
+    # -- 掩码生成
 
     def generate_square_subsequent_mask(self, sz):
         """
@@ -253,9 +234,7 @@ class Transformer(nn.Module):
         padding_mask = (tgt != self.pad_idx).unsqueeze(1).unsqueeze(2)
         return padding_mask & subsequent_mask
 
-    # ============================================================
-    # 前向传播
-    # ============================================================
+    # -- 前向传播
 
     def encode(self, src):
         src_padding_mask = self.make_src_mask(src)
@@ -287,9 +266,7 @@ class Transformer(nn.Module):
         return output
 
 
-# ============================================================
-# 快速验证
-# ============================================================
+# --- 快速验证
 if __name__ == "__main__":
     print("构建 Transformer Base 模型（~65M 参数）...")
     model = Transformer(
@@ -305,7 +282,7 @@ if __name__ == "__main__":
         pad_idx=0
     )
 
-    # ========== 验证 forward（训练模式） ==========
+    # 验证 forward（训练模式）
     print("\n[1] forward()")
     src = torch.randint(0, 32000, (32, 50))
     tgt = torch.randint(0, 32000, (32, 40))
@@ -313,7 +290,7 @@ if __name__ == "__main__":
     print(f"    输入: src {src.shape}, tgt {tgt.shape}")
     print(f"    输出: {output.shape}  ← 应为 [32, 40, 32000]")
 
-    # ========== 验证 encode + decode（推理逐步生成） ==========
+    # 验证 encode + decode（推理逐步生成）
     print("\n[2] encode() + decode()")
     src = torch.randint(0, 32000, (4, 30))
     enc, src_mask = model.encode(src)

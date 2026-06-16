@@ -127,6 +127,6 @@ class Config:
     device = "cuda"
 
 
-# 显存适配参考：RTX 4070Ti(12GB) → batch=32, max_len=128, accum=4
-#               RTX 4090(24GB) → batch=64, max_len=200, accum=2
-#               3×RTX 3090     → batch=32, max_len=200, accum=1
+# 显存适配参考：RTX 4070Ti(12GB) -> batch=32, max_len=128, accum=4
+#               RTX 4090(24GB) -> batch=64, max_len=200, accum=2
+#               3xRTX 3090     -> batch=32, max_len=200, accum=1

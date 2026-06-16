@@ -1,9 +1,7 @@
 """
-==============================================================
 Transformer 推理脚本
-==============================================================
 
-流程: 加载模型 → 编码源语言 → 解码目标语言 → 输出结果
+流程: 加载模型 -> 编码源语言 -> 解码目标语言 -> 输出结果
 """
 
 import torch
@@ -47,7 +45,6 @@ def load_checkpoint(checkpoint_path, device):
     if args is None:
         args = Config()
     
-    # 构建模型
     model = Transformer(
         src_vocab_size=len(tokenizer),
         tgt_vocab_size=len(tokenizer),
@@ -61,7 +58,6 @@ def load_checkpoint(checkpoint_path, device):
         pad_idx=0
     ).to(device)
     
-    # 加载权重
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()  # 评估模式，禁用dropout
     
@@ -75,14 +71,11 @@ def translate(model, tokenizer, text, device, max_len=100, beam_size=1):
     src_lang = "zh" if is_chinese else "en"
     tgt_lang = "en" if is_chinese else "zh"
     
-    # 编码源语言
     src_ids = tokenizer.encode(text, lang=src_lang, add_bos=False, add_eos=True)
     src_tensor = torch.tensor([src_ids], dtype=torch.long).to(device)
     
-    # 编码器前向传播
     encoder_output, src_mask = model.encode(src_tensor)
     
-    # 选择解码策略
     if beam_size == 1:
         return greedy_decode(model, tokenizer, encoder_output, src_mask, device, max_len, tgt_lang)
     else:
@@ -91,24 +84,18 @@ def translate(model, tokenizer, text, device, max_len=100, beam_size=1):
 
 def greedy_decode(model, tokenizer, encoder_output, src_mask, device, max_len, tgt_lang):
     """贪心解码：每步取 argmax，简单快速但无法回溯。"""
-    tgt_ids = [tokenizer.bos_id]  # 从开始符开始
+    tgt_ids = [tokenizer.bos_id]
     
     for _ in range(max_len):
-        # 解码一步
         tgt_tensor = torch.tensor([tgt_ids], dtype=torch.long).to(device)
         decoder_output = model.decode(tgt_tensor, encoder_output, src_mask)
         output = model.linear(decoder_output)
         
-        # 取概率最高的词
         next_token = output[0, -1].argmax().item()
-        
-        # 遇到结束符停止
         if next_token == tokenizer.eos_id:
             break
-        
         tgt_ids.append(next_token)
     
-    # 解码为文本
     result_text = tokenizer.decode(tgt_ids, lang=tgt_lang)
     return result_text
 
@@ -182,21 +169,17 @@ def main():
     parser.add_argument("--beam_size", type=int, default=1)
     args = parser.parse_args()
     
-    # 设置设备
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 检查模型文件
     if not os.path.exists(args.checkpoint):
         print(f"Checkpoint not found: {args.checkpoint}")
         print("Please run train_llm.py first to train the model.")
         return
     
-    # 加载模型
     print(f"Loading checkpoint from {args.checkpoint}...")
     model, tokenizer, config = load_checkpoint(args.checkpoint, device)
     print("Model loaded successfully!")
     
-    # 翻译模式
     if args.input:
         # 命令行翻译
         result = translate(model, tokenizer, args.input, device, config.max_len, args.beam_size)

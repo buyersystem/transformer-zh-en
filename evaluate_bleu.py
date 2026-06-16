@@ -1,7 +1,5 @@
 """
-=============================================================
 BLEU 评估脚本
-=============================================================
 
 计算翻译质量（标准 BLEU 公式）。
 用法: python evaluate_bleu.py --checkpoint ./checkpoints/best_model.pt
@@ -149,11 +147,9 @@ def main():
     )
     vocab_size = len(tokenizer)
     
-    # 加载模型
     print(f"Loading checkpoint: {args.checkpoint}")
     model, tokenizer, train_args = load_checkpoint(args.checkpoint, device, vocab_size)
     
-    # 加载验证集（取部分样本）
     val_dataset = TranslationDataset("./data/wmt_processed", tokenizer, args.max_len, "valid")
     
     # 限制评估样本数

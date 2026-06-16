@@ -93,14 +93,12 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         tgt_input = tgt[:, :-1]
         tgt_output = tgt[:, 1:]
         
-        # 前向传播
         with (torch.cuda.amp.autocast() if hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'autocast') else torch.amp.autocast('cuda')):
             logits = model(src, tgt_input)
             loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
         
         loss = loss / accumulate_grad
         
-        # 反向传播
         scaler.scale(loss).backward()
         
         # 梯度累积：达到累积步数后更新参数
@@ -113,7 +111,6 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
             optimizer.zero_grad()
             
 
-            # TensorBoard: 记录训练步数和损失
             if args.local_rank == 0 and writer is not None:
                 current_loss = loss.item() * accumulate_grad
                 current_lr = scheduler.get_last_lr()[0]
@@ -124,7 +121,6 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
         total_loss += loss.item() * accumulate_grad
         num_batches += 1
         
-        # 日志输出
         if args.local_rank == 0 and batch_idx % args.log_interval == 0:
             lr = scheduler.get_last_lr()[0]
             pbar.set_postfix({
@@ -161,7 +157,7 @@ def evaluate(model, val_loader, criterion, device):
 
 
 def main():
-    """训练入口：参数解析 → DDP 初始化 → 数据/模型构建 → 训练 → 保存。"""
+    """训练入口：参数解析 -> DDP 初始化 -> 数据/模型构建 -> 训练 -> 保存。"""
     args = get_args()
     
     # DDP 初始化
@@ -229,7 +225,6 @@ def main():
             pin_memory=True
         )
     
-    # 构建模型
     model = build_model(len(tokenizer), args).to(device)
     
     # torch.compile 暂不支持（Windows 无 Triton）
