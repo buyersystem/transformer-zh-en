@@ -47,11 +47,7 @@ def build_model(vocab_size, config):
 
 
 def set_seed(seed):
-    """
-    设置随机种子，确保实验可复现
-    
-    固定种子可以保证每次训练结果一致
-    """
+    """固定随机种子，确保实验可复现。"""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -86,10 +82,8 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
     total_loss = 0
     num_batches = 0
     
-    # 梯度累积计数器
     accumulate_grad = getattr(args, 'accumulate_grad', 1)
     
-    # 进度条 (只在主进程显示)
     pbar = tqdm(train_loader, desc=f"Epoch {epoch}") if args.local_rank == 0 else train_loader
     
     for batch_idx, (src, tgt) in enumerate(pbar):
@@ -167,17 +161,10 @@ def evaluate(model, val_loader, criterion, device):
 
 
 def main():
-    """
-    主训练函数
-    
-    流程：参数解析 → DDP初始化 → 分词器和数据集 → 模型构建 → 训练循环 → 保存模型
-    """
+    """训练入口：参数解析 → DDP 初始化 → 数据/模型构建 → 训练 → 保存。"""
     args = get_args()
     
-    # DDP初始化
-    # 判断是否使用多卡训练
-    # 单卡: RANK=-1, WORLD_SIZE=1
-    # 多卡: RANK=0/1/2, WORLD_SIZE=3
+    # DDP 初始化
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         args.world_size = int(os.environ['WORLD_SIZE'])
         args.rank = int(os.environ['RANK'])
@@ -187,23 +174,17 @@ def main():
         args.rank = 0
         args.local_rank = 0
     
-    # 初始化多卡训练环境
     if args.world_size > 1:
         dist.init_process_group(backend='nccl')
         torch.cuda.set_device(args.local_rank)
     
-    # 设置设备
     device = torch.device(f"cuda:{args.local_rank}" if torch.cuda.is_available() else "cpu")
-    
-    # 设置随机种子
     set_seed(args.seed)
     
     if args.local_rank == 0:
         print(f"Training with {args.world_size} GPUs")
         print(f"Config: d_model={args.d_model}, nhead={args.nhead}, layers={args.num_encoder_layers}")
     
-    # 构建分词器
-    # 首次运行会训练BPE（约2-3分钟），后续运行复用
     tokenizer = build_tokenizer(
         os.path.join(args.data_dir, "train.zh"),
         os.path.join(args.data_dir, "train.en"),
@@ -211,13 +192,10 @@ def main():
         os.path.join(args.checkpoint_dir, "bpe_unified")
     )
     
-    # 加载数据集
     train_dataset = TranslationDataset(args.data_dir, tokenizer, args.max_len, "train")
     val_dataset = TranslationDataset(args.data_dir, tokenizer, args.max_len, "valid")
     
-    # 创建数据加载器
     if args.world_size > 1:
-        # 分布式采样器：每个GPU处理数据的一部分
         train_sampler = DistributedSampler(train_dataset, num_replicas=args.world_size, rank=args.rank)
         train_loader = DataLoader(
             train_dataset, 
@@ -254,23 +232,16 @@ def main():
     # 构建模型
     model = build_model(len(tokenizer), args).to(device)
     
-    # torch.compile：Windows 无 Triton，暂不支持，使用 eager 模式
+    # torch.compile 暂不支持（Windows 无 Triton）
     # model = torch.compile(model)
-    
-    # 包装为DDP模型
     if args.world_size > 1:
         model = nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
     
-    # 损失函数
-    # 标签平滑：让模型不要过度自信，提高泛化能力
     criterion = nn.CrossEntropyLoss(
-        ignore_index=tokenizer.pad_id,  # 忽略padding位置的损失
+        ignore_index=tokenizer.pad_id,
         label_smoothing=args.label_smoothing
     )
     
-    # 优化器
-    # 使用 AdamW 替代 Adam，解耦权重衰减，提升泛化能力
-    # 论文推荐的 betas 和 eps 参数保持不变
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=args.lr, 
@@ -279,18 +250,16 @@ def main():
         weight_decay=0.01
     )
     
-    # 学习率调度器（余弦退火）
+    # 学习率调度（余弦退火）
     total_steps = len(train_loader) * args.epochs // args.accumulate_grad
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
         lambda step: get_lr_cosine(step, args.d_model, args.warmup_steps, args.lr_multiplier, max_steps=total_steps)
     )
     
-    # AMP: 梯度缩放器（兼容旧版 torch.cuda.amp）
     scaler = (torch.cuda.amp.GradScaler() if hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'GradScaler')
               else torch.amp.GradScaler('cuda'))
     
-    # 断点续训
     start_epoch = 0
     if args.load_checkpoint and os.path.exists(args.load_checkpoint):
         if args.local_rank == 0:
@@ -309,9 +278,6 @@ def main():
     # 创建检查点目录
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     
-    # TensorBoard 初始化
-    # 日志保存到 checkpoints/runs 目录
-    # 启动 TensorBoard: tensorboard --logdir checkpoints/runs
     writer = None
     if args.local_rank == 0:
         if TB_AVAILABLE:
@@ -327,7 +293,6 @@ def main():
     
     # 训练循环
     for epoch in range(start_epoch, args.epochs):
-        # DDP: 每个epoch需要设置随机种子
         if args.world_size > 1:
             train_sampler.set_epoch(epoch)
         
@@ -336,7 +301,6 @@ def main():
             criterion, device, epoch, args, global_step, writer, scaler
         )
         
-        # 验证并保存
         if args.local_rank == 0:
             print(f"Epoch {epoch}: train_loss={train_loss:.4f}")
             
@@ -346,12 +310,10 @@ def main():
             )
             print(f"Epoch {epoch}: val_loss={val_loss:.4f}")
             
-            # TensorBoard: 记录验证损失
             if writer is not None:
                 writer.add_scalar('Eval/Loss', val_loss, epoch)
                 writer.add_scalar('Eval/train_loss', train_loss, epoch)
             
-            # 保存最佳模型
             if val_loss < best_loss:
                 best_loss = val_loss
                 torch.save({
@@ -367,7 +329,6 @@ def main():
                 }, os.path.join(args.checkpoint_dir, "best_model.pt"))
                 print(f"Saved best model with val_loss={val_loss:.4f}")
             
-            # 定期保存检查点
             if (epoch + 1) % 5 == 0:
                 torch.save({
                     'epoch': epoch,
@@ -377,11 +338,8 @@ def main():
                     'scaler_state_dict': scaler.state_dict(),
                 }, os.path.join(args.checkpoint_dir, f"checkpoint_epoch_{epoch}.pt"))
     
-    # 清理DDP环境
     if args.world_size > 1:
         dist.destroy_process_group()
-    
-    # 关闭 TensorBoard writer
     if writer is not None:
         writer.close()
     
