@@ -47,17 +47,7 @@ def build_model(vocab_size, config):
 
 
 def set_seed(seed):
-    """
-    设置随机种子，确保实验可复现
-    
-    【为什么需要设置种子？】
-    深度学习涉及大量随机操作：
-    - 参数初始化
-    - Dropout
-    - 数据增强
-    
-    固定种子可以保证每次训练结果一致
-    """
+    """固定随机种子，确保实验可复现。"""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -66,9 +56,7 @@ def set_seed(seed):
 
 def get_lr(step, d_model, warmup_steps):
     """
-    计算学习率 - 论文原版公式
-    
-    【论文公式】
+    论文原版学习率调度公式：
     lr = d_model^(-0.5) * min(step^(-0.5), step * warmup_steps^(-1.5))
     """
     step = max(1, step)
@@ -77,54 +65,30 @@ def get_lr(step, d_model, warmup_steps):
 
 
 def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device, epoch, args, global_step, writer):
-    """
-    训练一个epoch
-    
-    【训练步骤】
-    1. 前向传播: model(src, tgt_input) → logits
-    2. 计算损失: criterion(logits, tgt_output)
-    3. 反向传播: loss.backward()
-    4. 参数更新: optimizer.step()
-    5. 学习率更新: scheduler.step()
-    """
+    """训练一个 epoch，包含前向、损失计算、反向传播和参数更新。"""
     model.train()
     total_loss = 0
     num_batches = 0
     
-    # 梯度累积计数器
-    # 【作用】将多个小batch的梯度累加，一次性更新
-    # 【例如】batch_size=32, accumulate=2 → 有效batch=64
+    # 梯度累积：多个小 batch 梯度累加后一次性更新，等效扩大 batch size
     accumulate_grad = getattr(args, 'accumulate_grad', 1)
     
-    # 进度条 (只在主进程显示)
     pbar = tqdm(train_loader, desc=f"Epoch {epoch}") if args.local_rank == 0 else train_loader
     
     for batch_idx, (src, tgt) in enumerate(pbar):
         src = src.to(device)
         tgt = tgt.to(device)
         
-        # 【关键步骤】目标序列处理
-        # tgt_input: 去掉最后一个token (作为输入)
-        # tgt_output: 去掉第一个token (作为标签)
-        # 
-        # 示例: tgt = [<s>, hello, world, </s>]
-        #        tgt_input = [<s>, hello, world]      # 去掉</s>
-        #        tgt_output = [hello, world, </s>]     # 去掉<s>
+        # 目标序列移位：tgt_input 去掉末尾，tgt_output 去掉开头
+        # 例: tgt=[<s>, hello, world, </s>] → input=[<s>,hello,world] / output=[hello,world,</s>]
         tgt_input = tgt[:, :-1]
         tgt_output = tgt[:, 1:]
         
         # 前向传播
         logits = model(src, tgt_input)
         
-        # 计算损失
-        # 【关键注意点 - reshape vs view】
-        # Transformer 中的 tensor 可能不连续，使用 .view() 会报错：
-        # "RuntimeError: view size is not compatible with input tensor's size and stride"
-        # 解决方案：使用 .reshape() 代替 .view()，reshape 可以处理非连续 tensor
-        #
-        # 将logits展平为(batch*tgt_len, vocab_size)
-        # 将tgt_output展平为(batch*tgt_len,)
-        # ignore_index=0 忽略padding位置的损失
+        # 用 reshape 而非 view：Transformer 内 tensor 可能不连续，view 会报错
+        # ignore_index=0 忽略 padding 位置的损失
         loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_output.reshape(-1))
         
         # 梯度累积：缩放损失
@@ -164,13 +128,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, criterion, device
 
 
 def evaluate(model, val_loader, criterion, device):
-    """
-    在验证集上评估模型
-    
-    【注意】
-    - 不需要梯度计算，使用torch.no_grad()加速
-    - 不使用梯度累积
-    """
+    """验证集评估，不计算梯度，不使用梯度累积。"""
     model.eval()
     total_loss = 0
     num_batches = 0
@@ -193,23 +151,11 @@ def evaluate(model, val_loader, criterion, device):
 
 
 def main():
-    """
-    主训练函数
-    
-    【训练流程】
-    1. 解析参数
-    2. 初始化DDP（如果是多卡）
-    3. 构建分词器和数据集
-    4. 构建模型
-    5. 训练循环
-    6. 保存模型
-    """
+    """训练入口：解析参数 → 初始化 DDP → 构建数据/模型 → 训练循环 → 保存。"""
     args = get_args()
     
-    # ========== DDP初始化 ==========
-    # 判断是否使用多卡训练
-    # 单卡: RANK=-1, WORLD_SIZE=1
-    # 多卡: RANK=0/1/2, WORLD_SIZE=3
+    # ========== DDP 初始化 ==========
+    # 单卡: RANK=-1, WORLD_SIZE=1; 多卡: RANK=0/1/2, WORLD_SIZE=3
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         args.world_size = int(os.environ['WORLD_SIZE'])
         args.rank = int(os.environ['RANK'])
@@ -219,23 +165,18 @@ def main():
         args.rank = 0
         args.local_rank = 0
     
-    # 初始化多卡训练环境
     if args.world_size > 1:
         dist.init_process_group(backend='nccl')
         torch.cuda.set_device(args.local_rank)
     
-    # 设置设备
     device = torch.device(f"cuda:{args.local_rank}" if torch.cuda.is_available() else "cpu")
-    
-    # 设置随机种子
     set_seed(args.seed)
     
     if args.local_rank == 0:
         print(f"Training with {args.world_size} GPUs")
         print(f"Config: d_model={args.d_model}, nhead={args.nhead}, layers={args.num_encoder_layers}")
     
-    # ========== 构建分词器 ==========
-    # 首次运行会训练BPE（约2-3分钟），后续运行复用
+    # ========== 分词器 ==========
     tokenizer = build_tokenizer(
         os.path.join(args.data_dir, "train.zh"),
         os.path.join(args.data_dir, "train.en"),
@@ -243,13 +184,11 @@ def main():
         os.path.join(args.checkpoint_dir, "bpe_unified")
     )
     
-    # ========== 加载数据集 ==========
+    # ========== 数据集 ==========
     train_dataset = TranslationDataset(args.data_dir, tokenizer, args.max_len, "train")
     val_dataset = TranslationDataset(args.data_dir, tokenizer, args.max_len, "valid")
     
-    # 创建数据加载器
     if args.world_size > 1:
-        # 分布式采样器：每个GPU处理数据的一部分
         train_sampler = DistributedSampler(train_dataset, num_replicas=args.world_size, rank=args.rank)
         train_loader = DataLoader(
             train_dataset, 
@@ -283,22 +222,18 @@ def main():
             pin_memory=True
         )
     
-    # ========== 构建模型 ==========
+    # ========== 模型 ==========
     model = build_model(len(tokenizer), args).to(device)
-    
-    # 包装为DDP模型
     if args.world_size > 1:
         model = nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
     
     # ========== 损失函数 ==========
-    # 标签平滑：让模型不要过度自信，提高泛化能力
     criterion = nn.CrossEntropyLoss(
-        ignore_index=tokenizer.pad_id,  # 忽略padding位置的损失
+        ignore_index=tokenizer.pad_id,
         label_smoothing=args.label_smoothing
     )
     
     # ========== 优化器 ==========
-    # 论文推荐的 betas 和 eps 参数
     optimizer = torch.optim.Adam(
         model.parameters(), 
         lr=args.lr, 
@@ -306,7 +241,7 @@ def main():
         eps=1e-9
     )
     
-    # ========== 学习率调度器（论文原版 Warmup） ==========
+    # ========== 学习率调度（论文原版 Warmup） ==========
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
         lambda step: get_lr(step, args.d_model, args.warmup_steps)
@@ -329,9 +264,7 @@ def main():
     # 创建检查点目录
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     
-    # ========== TensorBoard 初始化 ==========
-    # 日志保存到 checkpoints/runs 目录
-    # 启动 TensorBoard: tensorboard --logdir checkpoints/runs
+    # ========== TensorBoard ==========
     writer = None
     if args.local_rank == 0:
         if TB_AVAILABLE:
@@ -345,7 +278,7 @@ def main():
     best_loss = float('inf')
     global_step = 0
     
-    # ========== 训练循环 ==========
+    # ========== 训练 ==========
     for epoch in range(start_epoch, args.epochs):
         # DDP: 每个epoch需要设置随机种子
         if args.world_size > 1:
@@ -356,7 +289,6 @@ def main():
             criterion, device, epoch, args, global_step, writer
         )
         
-        # 验证并保存
         if args.local_rank == 0:
             print(f"Epoch {epoch}: train_loss={train_loss:.4f}")
             
@@ -366,12 +298,10 @@ def main():
             )
             print(f"Epoch {epoch}: val_loss={val_loss:.4f}")
             
-            # TensorBoard: 记录验证损失
             if writer is not None:
                 writer.add_scalar('Eval/Loss', val_loss, epoch)
                 writer.add_scalar('Eval/train_loss', train_loss, epoch)
             
-            # 保存最佳模型
             if val_loss < best_loss:
                 best_loss = val_loss
                 torch.save({
@@ -386,7 +316,6 @@ def main():
                 }, os.path.join(args.checkpoint_dir, "best_model.pt"))
                 print(f"Saved best model with val_loss={val_loss:.4f}")
             
-            # 定期保存检查点
             if (epoch + 1) % 5 == 0:
                 torch.save({
                     'epoch': epoch,
@@ -395,11 +324,8 @@ def main():
                     'scheduler_state_dict': scheduler.state_dict(),
                 }, os.path.join(args.checkpoint_dir, f"checkpoint_epoch_{epoch}.pt"))
     
-    # 清理DDP环境
     if args.world_size > 1:
         dist.destroy_process_group()
-    
-    # 关闭 TensorBoard writer
     if writer is not None:
         writer.close()
     

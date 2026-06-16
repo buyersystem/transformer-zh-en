@@ -1,12 +1,10 @@
 """
 =============================================================
-Transformer BLEU 评估脚本
+BLEU 评估脚本
 =============================================================
 
-计算翻译质量（使用标准 BLEU 公式）
-
-【使用】
-python evaluate_bleu.py --checkpoint ./checkpoints/best_model.pt
+计算翻译质量（标准 BLEU 公式）。
+用法: python evaluate_bleu.py --checkpoint ./checkpoints/best_model.pt
 """
 
 import os

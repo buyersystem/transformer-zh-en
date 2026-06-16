@@ -3,12 +3,7 @@
 Transformer 推理脚本
 ==============================================================
 
-1. 理解推理与训练的区别
-2. 掌握Greedy Search和Beam Search的原理
-3. 了解模型加载和状态恢复
-
-【推理流程】
-加载模型 → 编码源语言 → 解码目标语言 → 输出结果
+流程: 加载模型 → 编码源语言 → 解码目标语言 → 输出结果
 """
 
 import torch
@@ -22,15 +17,9 @@ from tokenizer import UnifiedBPETokenizer
 
 def load_checkpoint(checkpoint_path, device):
     """
-    加载训练好的模型检查点
-    
-    【检查点包含】
-    - model_state_dict: 模型权重
-    - tokenizer: 分词器
-    - args: 训练配置
-    
-    【注意】由于 pickle 无法正确序列化 SentencePiece 对象，
-    加载后需要重新加载 BPE 模型文件
+    加载训练好的模型检查点。
+    注意：pickle 无法正确序列化 SentencePiece 对象，
+    加载后需从 checkpoint 目录重新加载 BPE 模型文件。
     """
     checkpoint = torch.load(checkpoint_path, map_location=device)
     tokenizer = checkpoint['tokenizer']
@@ -80,22 +69,7 @@ def load_checkpoint(checkpoint_path, device):
 
 
 def translate(model, tokenizer, text, device, max_len=100, beam_size=1):
-    """
-    翻译函数
-    
-    【参数】
-    - model: Transformer模型
-    - tokenizer: 分词器
-    - text: 待翻译文本
-    - device: 计算设备
-    - max_len: 最大生成长度
-    - beam_size: Beam Search宽度，1表示Greedy Search
-    
-    【翻译流程】
-    1. 判断语言（中文/英文）
-    2. 编码源语言
-    3. 解码目标语言
-    """
+    """翻译函数。beam_size=1 用贪心搜索，>1 用 Beam Search。"""
     # 判断输入语言，目标语言取反
     is_chinese = any('\u4e00' <= c <= '\u9fff' for c in text)
     src_lang = "zh" if is_chinese else "en"
@@ -116,19 +90,7 @@ def translate(model, tokenizer, text, device, max_len=100, beam_size=1):
 
 
 def greedy_decode(model, tokenizer, encoder_output, src_mask, device, max_len, tgt_lang):
-    """
-    贪婪解码 (Greedy Search)
-    
-    【原理】
-    每一步选择概率最高的词
-    
-    【优点】
-    - 简单快速
-    
-    【缺点】
-    - 可能漏掉最优序列
-    - 无法回溯
-    """
+    """贪心解码：每步取 argmax，简单快速但无法回溯。"""
     tgt_ids = [tokenizer.bos_id]  # 从开始符开始
     
     for _ in range(max_len):
@@ -153,23 +115,10 @@ def greedy_decode(model, tokenizer, encoder_output, src_mask, device, max_len, t
 
 def beam_search_decode(model, tokenizer, encoder_output, src_mask, device, max_len, beam_size, tgt_lang):
     """
-    Beam Search解码
-    
-    【原理】
-    保留beam_size个最有可能的候选，选择概率乘积最高的
-    
-    【示例】beam_size=2
-    Step 1: ["hello", "hi"] (top 2)
-    Step 2: ["hello world", "hello there"] (top 2 of all)
-    ...
-    
-    【优点】
-    - 比Greedy更可能找到最优解
-    - 考虑多个可能的翻译
-    
-    【缺点】
-    - 速度较慢
-    - 内存占用大
+    Beam Search 解码。
+
+    同时维护 k 个候选路径，按累计概率保留最优。
+    比贪心更可能找到全局最优，但速度慢、内存开销大。
     """
     # encoder_output / src_mask 来自单样本 [1, src_len, d_model]，所有 beam 共享
     batch_size = encoder_output.size(0)
@@ -226,19 +175,7 @@ def beam_search_decode(model, tokenizer, encoder_output, src_mask, device, max_l
 
 
 def main():
-    """
-    主函数
-    
-    【使用方式】
-    # 命令行翻译
-    python infer.py --input "你好世界"
-    
-    # 交互式翻译
-    python infer.py
-    
-    # Beam Search
-    python infer.py --beam_size 5
-    """
+    """支持命令行翻译和交互式翻译两种模式。"""
     parser = argparse.ArgumentParser(description='Transformer机器翻译推理')
     parser.add_argument("--checkpoint", type=str, default="./checkpoints/best_model.pt")
     parser.add_argument("--input", type=str, default=None)

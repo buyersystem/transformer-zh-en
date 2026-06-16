@@ -1,17 +1,10 @@
 """
 ==============================================================
-Transformer 中英机器翻译 - 分词器
+Transformer 中英机器翻译 — 分词器
 ==============================================================
-实现统一BPE分词，中英文使用相同的子词分词方式。
+统一 BPE 分词，中英文使用相同子词词表。
 
-1. 理解BPE (Byte Pair Encoding) 原理
-2. 掌握中英文分词的区别和统一处理
-3. 了解词表构建过程
-
-【为什么使用BPE】
-- 传统分词：中文按字/词，英文按词，粒度不一致
-- BPE分词：将词拆分为子词单元，中英文粒度一致
-- 优点：解决OOV问题、跨语言对齐更好
+BPE 将词拆分为子词单元，中英文粒度一致，解决 OOV 问题。
 """
 
 import re
@@ -22,51 +15,34 @@ import tempfile
 
 class UnifiedBPETokenizer:
     """
-    统一BPE分词器
-    
-    【核心思想】
-    中英文使用相同的BPE分词方式，构建统一的32K词表。
-    这样可以：
-    1. 中英文粒度一致，翻译对齐更好
-    2. 共享词表，模型更容易学习跨语言表示
-    3. 解决未登录词(OOV)问题
+    统一 BPE 分词器
+
+    中英文使用相同 BPE 词表（32K），粒度一致、共享表示、解决 OOV。
     """
     
     def __init__(self, model_prefix=None):
         self.sp = None
         self.model_prefix = model_prefix
         
-        # 特殊Token定义 (SentencePiece默认)
-        self.pad_token = "<pad>"    # 填充符
-        self.unk_token = "<unk>"    # 未知词
-        self.bos_token = "<s>"      # 句子开始
-        self.eos_token = "</s>"      # 句子结束
+        # SentencePiece 默认特殊 token
+        self.pad_token = "<pad>"
+        self.unk_token = "<unk>"
+        self.bos_token = "<s>"
+        self.eos_token = "</s>"
         
-        # Token ID
         self.pad_id = 0
         self.unk_id = 1
         self.bos_id = 2
         self.eos_id = 3
         
-        # 如果已有模型，加载
         if model_prefix and os.path.exists(model_prefix + ".model"):
             self.sp = spm.SentencePieceProcessor()
             self.sp.Load(model_prefix + ".model")
     
     def train(self, zh_file, en_file, vocab_size=32000, model_prefix="bpe_unified"):
         """
-        训练BPE分词模型
-        
-        【参数】
-        - zh_file: 中文训练文件
-        - en_file: 英文训练文件
-        - vocab_size: 词表大小 (默认32000)
-        - model_prefix: 模型保存路径
-        
-        【训练过程】
-        1. 合并中英文语料，添加语言标记
-        2. 使用SentencePiece训练BPE
-        3. 保存模型供后续使用
+        训练 BPE 分词模型。
+        合并中英文语料并添加语言标记，用 SentencePiece 训练后保存。
         """
         self.model_prefix = model_prefix
         
@@ -128,13 +104,7 @@ class UnifiedBPETokenizer:
             os.unlink(temp_file.name)
     
     def tokenize_zh(self, text):
-        """
-        中文分词
-        
-        【示例】
-        text = "机器翻译是人工智能的重要应用"
-        tokens = ["机", "器", "翻", "译", "是", ...]  # BPE子词
-        """
+        """中文分词，加语言标记前缀后调用 SentencePiece。"""
         if self.sp is None:
             raise ValueError("BPE model not loaded")
         
@@ -146,13 +116,7 @@ class UnifiedBPETokenizer:
         return result
     
     def tokenize_en(self, text):
-        """
-        英文分词
-        
-        【示例】
-        text = "Machine translation is important"
-        tokens = ["Mach", "ine", "translation", "is", "important"]
-        """
+        """英文分词，转小写+标点处理+语言标记后调用 SentencePiece。"""
         if self.sp is None:
             raise ValueError("BPE model not loaded")
         
@@ -166,16 +130,8 @@ class UnifiedBPETokenizer:
     
     def encode(self, text, lang="zh", add_bos=True, add_eos=True):
         """
-        文本转ID序列
-        
-        【参数】
-        - text: 输入文本
-        - lang: 语言 ("zh" 或 "en")
-        - add_bos: 是否添加开始符
-        - add_eos: 是否添加结束符
-        
-        【返回】
-        - ID列表，如 [2, 1234, 5678, 3] (2=<s>, 3=</s>)
+        文本转 ID 序列。
+        lang: "zh" 或 "en"，返回如 [2, 1234, 5678, 3] (2=<s>, 3=</s>)。
         """
         if lang == "zh":
             tokens = self.tokenize_zh(text)
@@ -199,16 +155,7 @@ class UnifiedBPETokenizer:
         return ids
     
     def decode(self, ids, lang="en"):
-        """
-        ID序列转文本
-        
-        【参数】
-        - ids: ID列表
-        - lang: 目标语言
-        
-        【返回】
-        - 还原后的文本
-        """
+        """ID 序列还原为文本，过滤特殊 token，中文输出去空格。"""
         pieces = [self.sp.id_to_piece(i) for i in ids]
 
         # 过滤特殊 token 和语言标记
@@ -232,21 +179,12 @@ class UnifiedBPETokenizer:
 
 
 def build_tokenizer(zh_file, en_file, vocab_size=32000, model_prefix="./bpe_unified"):
-    """
-    构建统一的BPE分词器
-    
-    【使用】
-    tokenizer = build_tokenizer("train.zh", "train.en", vocab_size=32000)
-    
-    首次运行会自动训练BPE模型（约2-3分钟），
-    后续运行会复用已训练的模型。
-    """
+    """构建 BPE 分词器。首次运行自动训练（约 2-3 分钟），后续复用。"""
     tokenizer = UnifiedBPETokenizer(model_prefix)
     tokenizer.train(zh_file, en_file, vocab_size, model_prefix)
     return tokenizer
 
 
-# 兼容旧接口
 class BilingualTokenizer(UnifiedBPETokenizer):
-    """BilingualTokenizer是UnifiedBPETokenizer的别名"""
+    """兼容旧接口的别名"""
     pass

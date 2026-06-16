@@ -1,16 +1,10 @@
 """
 =============================================================
-使用 BPE 分词器进行分词脚本
+BPE 分词工具脚本
 =============================================================
 
-【功能】
-使用已训练好的 BPE 分词器对文本进行分词（encode/decode）
-
-【使用】
-python tokenize_text.py
-
-【前置条件】
-需要先运行 train_tokenizer.py 训练分词器
+对文本进行 encode/decode。需要先训练 BPE 模型。
+用法: python tokenize_text.py
 """
 
 import sentencepiece as spm

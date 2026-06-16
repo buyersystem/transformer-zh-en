@@ -44,7 +44,7 @@ def convert_subset_data(csv_file, output_zh, output_en):
                     error_count += 1
                     continue
             
-            # 【关键处理】去掉中文中的空格（原来已经分词）
+            # 去掉中文中的空格（原数据已分词）
             zh = zh.replace(' ', '')
             
             # 跳过空值
