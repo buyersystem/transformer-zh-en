@@ -29,6 +29,9 @@ checkpoints/runs/
 # BPE 备份
 checkpoints/*.backup
 
+# GPG 私钥备份（切勿提交）
+.gpg-backup/
+
 # IDE / OS
 .DS_Store
 Thumbs.db
